@@ -122,7 +122,7 @@ print_info "Starting coordinator agent..."
 print_info "Press Ctrl+C to stop all services"
 echo ""
 
-"python" agents/coordinator_agent.py
+python agents/coordinator_agent.py
 
 # The coordinator agent will run until it completes
 # Then cleanup will be called automatically via trap
