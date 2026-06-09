@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field
 # ── Anthropic client ──────────────────────────────────────────────────────────
 
 claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-MODEL  = "claude-sonnet-4-20250514"
+MODEL  = "claude-opus-4-6"
 
 app = FastAPI(title="Research Agent", version="2.0.0")
 

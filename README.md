@@ -236,7 +236,7 @@ INFO agentgateway: Listening on 0.0.0.0:4000   # LLM gateway
 INFO agentgateway: Admin UI at http://localhost:15000/ui/
 ```
 
-Open the Admin UI at **http://localhost:15000/ui/** — you can inspect routes, backends, and live traces here without writing any code.
+Open the Admin UI at **<http://localhost:15000/ui/>** — you can inspect routes, backends, and live traces here without writing any code.
 
 ---
 
@@ -286,6 +286,7 @@ uvicorn research_agent:app --port 9999 --reload
 ```
 
 You should see:
+
 ```
 INFO:     Uvicorn running on http://0.0.0.0:9999
 ```
@@ -297,6 +298,7 @@ curl http://localhost:9999/.well-known/agent.json | python -m json.tool
 ```
 
 Expected response:
+
 ```json
 {
   "name": "research-agent",
@@ -417,6 +419,7 @@ python agents/coordinator_agent.py
 ```
 
 The coordinator will:
+
 1. Fetch the agent card from `http://localhost:3000/.well-known/agent.json` and populate the `WorkerRegistry`
 2. Call the **Planner** — Claude decides if the query needs multiple steps
 3. **Multi-step path**: decompose into subtasks → dispatch each → synthesise results
@@ -505,7 +508,7 @@ With `config/gateway_full.yaml`, your code stays the same — just change a head
 curl http://localhost:3200/v1/chat/completions \
   -H "x-provider: anthropic" \
   -H "Content-Type: application/json" \
-  -d '{"model": "claude-sonnet-4-20250514", "messages": [...]}'
+  -d '{"model": "claude-opus-4-6", "messages": [...]}'
 
 # Route to Gemini
 curl http://localhost:3200/v1/chat/completions \
@@ -611,6 +614,7 @@ curl http://localhost:3100/mcp/github \
 ```
 
 Gateway adds:
+
 - **RBAC** — only whitelisted tool calls pass through.
 - **Audit log** — every `tools/call` is recorded with caller identity.
 - **OTel span** — per-tool trace for your observability stack.
@@ -669,6 +673,7 @@ agentgateway -f config/config_minimal.yaml
 ```
 
 Every call now emits a span with:
+
 - `agent.task.id` — A2A task identifier
 - `llm.model` — model name
 - `llm.tokens.input` / `llm.tokens.output`
@@ -677,7 +682,7 @@ Every call now emits a span with:
 
 ### Step 14: View live traces in the Admin UI
 
-Open **http://localhost:15000/ui/traces** — no Jaeger/Grafana needed for local development.
+Open **<http://localhost:15000/ui/traces>** — no Jaeger/Grafana needed for local development.
 
 ### Governance — OPA policy decisions
 
@@ -705,7 +710,7 @@ The policy decision (allow/deny) is stored in the audit log alongside the full r
   "caller": "coordinator-agent",
   "backend": "research-agent:9999",
   "policy_decision": "allow",
-  "llm_model": "claude-sonnet-4-20250514",
+  "llm_model": "claude-opus-4-6",
   "tokens_in": 142,
   "tokens_out": 387,
   "latency_ms": 1234,
@@ -829,11 +834,11 @@ Because the coordinator uses **Supervisor-Worker** discovery, adding a new agent
 
 ## Resources
 
-- Docs: https://agentgateway.dev/docs/standalone/latest/
-- A2A tutorial: https://agentgateway.dev/docs/standalone/latest/tutorials/a2a/
-- LLM gateway tutorial: https://agentgateway.dev/docs/standalone/latest/tutorials/llm-gateway/
-- MCP connectivity: https://agentgateway.dev/docs/standalone/latest/mcp/
-- GitHub: https://github.com/agentgateway/agentgateway
-- Discord: https://discord.gg/y9efgEmppm
-- AAIF: https://aaif.io
-- Agent Patterns Catalog: https://agentpatternscatalog.org
+- Docs: <https://agentgateway.dev/docs/standalone/latest/>
+- A2A tutorial: <https://agentgateway.dev/docs/standalone/latest/tutorials/a2a/>
+- LLM gateway tutorial: <https://agentgateway.dev/docs/standalone/latest/tutorials/llm-gateway/>
+- MCP connectivity: <https://agentgateway.dev/docs/standalone/latest/mcp/>
+- GitHub: <https://github.com/agentgateway/agentgateway>
+- Discord: <https://discord.gg/y9efgEmppm>
+- AAIF: <https://aaif.io>
+- Agent Patterns Catalog: <https://agentpatternscatalog.org>

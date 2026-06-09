@@ -10,7 +10,7 @@ llm:
   - name: claude-sonnet
     provider: anthropic
     params:
-      model: claude-sonnet-4-20250514
+      model: claude-opus-4-6
       apiKey: "$ANTHROPIC_API_KEY"
 
 # A2A Gateway at :3000 → Research Agent at :9999

@@ -51,7 +51,7 @@ GATEWAY_BASE  = "http://localhost:3000"
 GATEWAY_ADMIN = "http://localhost:15000"
 
 claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-MODEL  = "claude-sonnet-4-20250514"
+MODEL  = "claude-opus-4-6"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
