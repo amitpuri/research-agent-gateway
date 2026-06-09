@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# config_minimal.yaml — Quickstart config (A2A + single LLM provider)
+# Run: agentgateway -f config_minimal.yaml
+# Admin UI: http://localhost:15000/ui/
+
+# LLM Gateway (Anthropic) at :4000
+llm:
+  models:
+  - name: claude-sonnet
+    provider: anthropic
+    params:
+      model: claude-sonnet-4-20250514
+      apiKey: "$ANTHROPIC_API_KEY"
+
+# A2A Gateway at :3000 → Research Agent at :9999
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins: ["*"]
+          allowHeaders: [content-type, cache-control]
+        a2a: {}
+      backends:
+      - host: localhost:9999

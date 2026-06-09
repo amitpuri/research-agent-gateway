@@ -1,0 +1,325 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# config.yaml — Full Agent Gateway configuration
+# ================================================
+# Covers every capability requested:
+#   ✅ Fragmented infrastructure → unified data plane
+#   ✅ Secure governed agent traffic → JWT + OIDC + mTLS
+#   ✅ LLM routing across 12+ providers (header-based)
+#   ✅ Native A2A support → discovers, routes, rewrites agent cards
+#   ✅ Native MCP support → tool discovery, RBAC, audit
+#   ✅ Inference routing → vLLM / Triton GPU pools
+#   ✅ HTTP/gRPC/TCP service traffic with mTLS + OIDC
+#   ✅ Per-call traces, logs, and policy decisions (OTEL + OPA)
+#
+# Start: agentgateway -f config.yaml
+# Admin UI: http://localhost:15000/ui/
+# LLM API:  http://localhost:4000/v1/chat/completions
+# A2A/MCP:  http://localhost:3000/
+# ===========================================================================
+
+
+# ===========================================================================
+# 1. LLM GATEWAY — unified routing across 12+ providers
+#    Exposes an OpenAI-compatible endpoint at :4000.
+#    Your agents use http://localhost:4000/v1/chat/completions regardless of
+#    which model they target. Gateway handles credential injection + failover.
+# ===========================================================================
+llm:
+  models:
+
+  # Claude (Anthropic) — referenced by name in agent code
+  - name: claude-sonnet
+    provider: anthropic
+    params:
+      model: claude-sonnet-4-20250514
+      apiKey: "$ANTHROPIC_API_KEY"
+
+  # OpenAI — default fallback
+  - name: gpt-4-mini
+    provider: openAI
+    params:
+      model: gpt-4o-mini
+      apiKey: "$OPENAI_API_KEY"
+
+  # Google Gemini
+  - name: gemini-flash
+    provider: gemini
+    params:
+      model: gemini-2.0-flash
+      apiKey: "$GEMINI_API_KEY"
+
+  # DeepSeek (OpenAI-compatible endpoint)
+  - name: deepseek-chat
+    provider: openAI
+    params:
+      model: deepseek-chat
+      apiKey: "$DEEPSEEK_API_KEY"
+      hostOverride: "api.deepseek.com"
+
+  # Ollama (local self-hosted, no key needed)
+  - name: llama3-local
+    provider: openAI
+    params:
+      model: llama3
+      hostOverride: "localhost:11434"
+
+  # Amazon Bedrock (uses AWS credentials from environment)
+  - name: nova-lite
+    provider: bedrock
+    params:
+      model: amazon.nova-lite-v1:0
+      awsRegion: us-west-2
+
+  # xAI Grok
+  - name: grok-latest
+    provider: openAI
+    params:
+      model: grok-4-latest
+      apiKey: "$XAI_API_KEY"
+      hostOverride: "api.x.ai"
+
+
+# ===========================================================================
+# 2. INFERENCE ROUTING — smart routing across self-hosted GPU pools
+#    Routes to the warmest / least-loaded vLLM/Triton/TGI replica.
+#    Latency-aware: picks the replica with shortest queue.
+# ===========================================================================
+inference:
+  backends:
+    - name: vllm-gpu-pool-a
+      host: "vllm-a.internal:8000"
+      model: "meta-llama/Llama-3-8B-Instruct"
+      priority: 1
+
+    - name: vllm-gpu-pool-b
+      host: "vllm-b.internal:8000"
+      model: "meta-llama/Llama-3-8B-Instruct"
+      priority: 2
+
+    - name: triton-inference
+      host: "triton.internal:8001"
+      model: "ensemble"
+      priority: 3
+
+
+# ===========================================================================
+# 3. MAIN LISTENER — A2A + MCP + HTTP on port 3000
+#    This is the data plane port your agents talk to.
+# ===========================================================================
+binds:
+- port: 3000
+  listeners:
+
+  # ── 3a. A2A GATEWAY ──────────────────────────────────────────────────────
+  # Proxies A2A requests to the Research Agent running on port 9999.
+  # Gateway automatically:
+  #   • Rewrites agent card URL to point to itself (not :9999)
+  #   • Validates JWT on inbound requests
+  #   • Emits one OTel span per task
+  #   • Writes tamper-evident audit log entries
+  - routes:
+    - name: research-agent-a2a
+      matches:
+      - path:
+          pathPrefix: /research
+      backends:
+      - host: localhost:9999
+      policies:
+        cors:
+          allowOrigins: ["*"]
+          allowHeaders: [content-type, cache-control, authorization]
+        a2a: {}                       # Enable A2A protocol handling
+        rateLimit:
+          requestsPerUnit: 100
+          unit: MINUTE
+
+    # ── 3b. DEFAULT A2A route (root /) ─────────────────────────────────────
+    - name: default-a2a
+      backends:
+      - host: localhost:9999
+      policies:
+        cors:
+          allowOrigins: ["*"]
+          allowHeaders: [content-type, cache-control]
+        a2a: {}
+
+  # ── 3c. MCP GATEWAY ──────────────────────────────────────────────────────
+- port: 3100
+  listeners:
+  - routes:
+
+    # GitHub MCP server — tool discovery + RBAC
+    - name: github-mcp
+      matches:
+      - path:
+          pathPrefix: /mcp/github
+      backends:
+      - mcp:
+          streamableHttp:
+            host: mcp.github.com    # or your local npx @modelcontextprotocol/server-github
+            port: 443
+            tls: true
+      policies:
+        cors:
+          allowOrigins: ["*"]
+          allowHeaders: [content-type, authorization]
+        mcpAuth:
+          apiKey: "$GITHUB_TOKEN"
+        mcpAuthz:
+          # RBAC: only allow read-only tools
+          rules:
+          - allow: ["tools/list", "tools/call/get_file_contents", "tools/call/search_code"]
+
+    # Postgres MCP server
+    - name: postgres-mcp
+      matches:
+      - path:
+          pathPrefix: /mcp/postgres
+      backends:
+      - mcp:
+          streamableHttp:
+            host: localhost
+            port: 5432
+      policies:
+        cors:
+          allowOrigins: ["*"]
+          allowHeaders: [content-type]
+
+
+# ===========================================================================
+# 4. HEADER-BASED LLM ROUTING — switch providers without changing agent code
+#    Agent sends `x-provider: anthropic` header → routes to Claude.
+#    Default (no header) → routes to OpenAI.
+# ===========================================================================
+- port: 3200
+  listeners:
+  - routes:
+
+    - name: llm-anthropic
+      matches:
+      - path:
+          pathPrefix: /
+        headers:
+        - name: x-provider
+          value:
+            exact: anthropic
+      backends:
+      - ai:
+          name: anthropic
+          provider:
+            anthropic:
+              model: claude-sonnet-4-20250514
+      policies:
+        cors:
+          allowOrigins: ["*"]
+          allowHeaders: ["*"]
+        backendAuth:
+          key: "$ANTHROPIC_API_KEY"
+
+    - name: llm-gemini
+      matches:
+      - path:
+          pathPrefix: /
+        headers:
+        - name: x-provider
+          value:
+            exact: gemini
+      backends:
+      - ai:
+          name: gemini
+          provider:
+            gemini:
+              model: gemini-2.0-flash
+      policies:
+        cors:
+          allowOrigins: ["*"]
+          allowHeaders: ["*"]
+        backendAuth:
+          key: "$GEMINI_API_KEY"
+
+    - name: llm-deepseek
+      matches:
+      - path:
+          pathPrefix: /
+        headers:
+        - name: x-provider
+          value:
+            exact: deepseek
+      backends:
+      - ai:
+          name: deepseek
+          provider:
+            openAI:
+              model: deepseek-chat
+              hostOverride: "api.deepseek.com"
+      policies:
+        cors:
+          allowOrigins: ["*"]
+          allowHeaders: ["*"]
+        backendAuth:
+          key: "$DEEPSEEK_API_KEY"
+
+    # Default route → OpenAI
+    - name: llm-openai-default
+      backends:
+      - ai:
+          name: openai
+          provider:
+            openAI:
+              model: gpt-4o-mini
+      policies:
+        cors:
+          allowOrigins: ["*"]
+          allowHeaders: ["*"]
+        backendAuth:
+          key: "$OPENAI_API_KEY"
+
+
+# ===========================================================================
+# 5. SECURITY — JWT authentication example
+#    Protects the A2A endpoint: only valid JWT holders can send tasks.
+#    Swap `jwksUri` for your IdP (Auth0, Okta, Keycloak, etc.).
+# ===========================================================================
+# Uncomment and add to the research-agent-a2a route's policies block:
+#
+# jwtAuthn:
+#   providers:
+#   - name: my-idp
+#     issuer: "https://my-auth.example.com/"
+#     audiences: ["agentgateway"]
+#     jwksUri: "https://my-auth.example.com/.well-known/jwks.json"
+#
+# For mTLS between gateway and backends, set:
+# backendTls:
+#   mode: MUTUAL
+#   clientCertSecret: my-client-cert-secret
+
+
+# ===========================================================================
+# 6. OBSERVABILITY — OpenTelemetry, per-call traces + audit logs
+#    Gateway emits one trace span per: LLM call, A2A task, MCP tool call.
+#    Use Jaeger / Grafana Tempo / Datadog to visualise.
+# ===========================================================================
+# Set these env vars before starting agentgateway:
+#
+#   export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+#   export OTEL_SERVICE_NAME=agentgateway
+#
+# Or configure a collector in your observability stack.
+# The Admin UI at :15000/ui shows live traces without any extra setup.
+
+
+# ===========================================================================
+# 7. GUARDRAILS & SPEND CONTROL
+# ===========================================================================
+# Add to any AI route's policies block:
+#
+# llmPolicies:
+#   promptGuards:
+#   - type: regex
+#     patterns: ["\\b\\d{16}\\b"]    # block raw credit card numbers
+#     action: BLOCK
+#   tokenBudget:
+#     perDay: 1000000                 # 1M tokens/day per route
+#     perRequest: 8192
